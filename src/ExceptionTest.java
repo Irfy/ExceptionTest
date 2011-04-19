@@ -1,81 +1,83 @@
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.OutputStream;
-import java.io.PrintStream;
-
+/**
+ * <p>
+ * Measures the cost of exceptions in a specific recursive re-throwing scenario
+ * (see {@link #doTest(int)}) with various exception handling strategies (see
+ * {@link ExceptionHandler}).
+ * </p>
+ * <p>
+ * Accepts optional command-line arguments <#-tests-per-strategy>
+ * <recursion-depth>.
+ * 
+ * @author Alois Reitbauer
+ * @author Irfan Adilovic
+ */
 public class ExceptionTest {
-
-	public long maxLevel = 20;
-
-	enum ExceptionHandler {
-		NONE {
-			void handle(Throwable t) {
-			}
-		},
-		PRINT_STDOUT {
-			void handle(Throwable t) {
-				t.printStackTrace(System.out);
-			}
-		},
-		PRINT_NULL {
-			private final OutputStream nullos = new OutputStream() {
-				@Override
-				public void write(int b) throws IOException {
-				}
-
-				@Override
-				public void write(byte[] b) throws IOException {
-				}
-
-				@Override
-				public void write(byte[] b, int off, int len) throws IOException {
-				};
-			};
-			private final PrintStream nullps = new PrintStream(nullos);
-
-			void handle(Throwable t) {
-				t.printStackTrace(nullps);
-			}
-		},
-		PRINT_ARRAY {
-			private final ByteArrayOutputStream baos = new ByteArrayOutputStream(
-					1000000);
-			private final PrintStream baps = new PrintStream(baos);
-
-			void handle(Throwable t) {
-				t.printStackTrace(baps);
-			}
-		};
-		abstract void handle(Throwable t);
-	}
-
 	public static void main(String... args) {
-		ExceptionTest test = new ExceptionTest();
+		System.out.println("It is strongly suggested to redirect standard"
+				+ " output to '/dev/null' (or 'nul' on windows) or you"
+				+ " may need to let the program run for a day or two.");
 
-		for (ExceptionHandler eh : ExceptionHandler.values()) {
-			long start = System.currentTimeMillis();
-			int count = 10000;
+		int count = 10000;
+		int maxLevel = 20;
+
+		// horrible programming practice, just for fun.
+		try {
+			count = Integer.parseInt(args[0]);
+			maxLevel = Integer.parseInt(args[1]);
+		} catch (Throwable t) {
+		}
+		// end horrible programming practice.
+
+		for (ExceptionHandler exHandler : ExceptionHandler.values()) {
+			System.err.printf("%14s - %s\n", exHandler, exHandler.desc);
+			ExceptionTest exTest = new ExceptionTest(exHandler, maxLevel);
+			double start = System.currentTimeMillis();
 			for (int i = 0; i < count; i++)
 				try {
-					test.doTest(2, 0, eh);
+					exTest.doTest(0);
 				} catch (Exception ex) {
-					eh.handle(ex);
+					exHandler.handle(ex);
 				}
-			long diff = System.currentTimeMillis() - start;
-			System.err.println(String.format("Average time for invocation: %1$.5f",
-					(double) diff / count));
+			double diff = System.currentTimeMillis() - start;
+			System.err.printf("%23.4fms\n\n", diff / count);
+
+			/*
+			 * defensively try to reclaim memory, hoping that the JVM will
+			 * refrain from using 'fast' exceptions (reusing old ones, setting
+			 * an empty stack trace). See also
+			 * http://www.javaspecialists.eu/archive/Issue187.html
+			 */
+			System.gc();
+			System.gc();
 		}
 	}
 
-	public void doTest(int i, int level, ExceptionHandler eh) {
+	// non-static stuff
+
+	private final ExceptionHandler exHandler;
+	private final int maxLevel;
+
+	private ExceptionTest(ExceptionHandler exHandler, int maxLevel) {
+		this.exHandler = exHandler;
+		this.maxLevel = maxLevel;
+	}
+
+	/**
+	 * Calls itself exactly <code>MAX_LEVEL - level<code> times and then throws
+	 * a {@link java.lang.RuntimeException}.
+	 * 
+	 * @param level
+	 *            The recursive nesting level of this function.
+	 */
+	private void doTest(int level) {
 		if (level < maxLevel)
 			try {
-				doTest(i, ++level, eh);
+				doTest(level + 1);
 			} catch (Exception ex) {
-				eh.handle(ex);
-				throw new RuntimeException("UUUPS", ex);
+				exHandler.handle(ex);
+				throw new RuntimeException("Level " + level, ex);
 			}
-		else if (i > 1)
-			throw new RuntimeException("Ups".substring(0, 3));
+		else
+			throw new RuntimeException("Level " + level);
 	}
 }
